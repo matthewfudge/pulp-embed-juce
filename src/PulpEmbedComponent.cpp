@@ -4,7 +4,7 @@
 
 namespace pulp_juce {
 
-PulpEmbedComponent::PulpEmbedComponent(const juce::File& designIrJson,
+PulpEmbedComponent::PulpEmbedComponent(const juce::File& source,
                                        int logicalWidth, int logicalHeight) {
     setSize(logicalWidth, logicalHeight);
 
@@ -18,9 +18,14 @@ PulpEmbedComponent::PulpEmbedComponent(const juce::File& designIrJson,
     desc.design_width = logicalWidth;
     desc.design_height = logicalHeight;
 
-    const auto path = designIrJson.getFullPathName();
+    const auto path = source.getFullPathName();
+    // A directory (importer `--emit js` bundle with ui.js) renders through the
+    // high-fidelity scripted-UI path; a .json file uses the lightweight native
+    // DesignIR path.
     PulpEmbedResult r =
-        pulp_embed_create_from_design_json(&desc, path.toRawUTF8(), &view_);
+        (source.isDirectory() || source.getChildFile("ui.js").existsAsFile())
+            ? pulp_embed_create_from_ui_bundle(&desc, path.toRawUTF8(), &view_)
+            : pulp_embed_create_from_design_json(&desc, path.toRawUTF8(), &view_);
     if (r != PULP_EMBED_OK || view_ == nullptr) {
         view_ = nullptr;
         return;

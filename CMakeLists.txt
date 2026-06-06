@@ -54,6 +54,7 @@ if(PULP_EMBED_JUCE_BUILD_EXAMPLE)
         juce::juce_gui_extra
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags)
+    # Point at the importer JS bundle dir (high-fidelity scripted-UI render).
     target_compile_definitions(pulp-embed-juce-demo PRIVATE
-        PULP_EMBED_DEMO_IR="${CMAKE_CURRENT_SOURCE_DIR}/../pulp-view-embed/fixtures/figma-vst-style/design.ir.json")
+        PULP_EMBED_DEMO_IR="${CMAKE_CURRENT_SOURCE_DIR}/../pulp-view-embed/fixtures/figma-vst-style/bundle")
 endif()

@@ -18,9 +18,11 @@ namespace pulp_juce {
 class PulpEmbedComponent : public juce::Component,
                            private juce::Timer {
 public:
-    // Builds the embedded view from a DesignIR JSON file. logicalSize is the
-    // design's logical size (also used as the design viewport pin).
-    PulpEmbedComponent(const juce::File& designIrJson,
+    // Builds the embedded view from either an importer JS bundle directory
+    // (high-fidelity scripted-UI path; contains ui.js) or a DesignIR JSON file
+    // (lightweight native path) — auto-detected. logicalSize is the design's
+    // logical size (also used as the design viewport pin).
+    PulpEmbedComponent(const juce::File& source,
                        int logicalWidth, int logicalHeight);
     ~PulpEmbedComponent() override;
 
