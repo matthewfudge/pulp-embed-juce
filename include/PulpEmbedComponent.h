@@ -8,6 +8,7 @@
 #pragma once
 
 #include <juce_gui_basics/juce_gui_basics.h>
+#include <juce_gui_extra/juce_gui_extra.h>  // juce::NSViewComponent (macOS)
 #include <pulp_view_embed.h>
 
 #include <memory>

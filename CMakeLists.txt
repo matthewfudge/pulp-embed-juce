@@ -36,8 +36,9 @@ target_include_directories(pulp_embed_juce
     PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
 target_link_libraries(pulp_embed_juce
     PUBLIC pulp_view_embed
-    PRIVATE juce::juce_gui_basics
-            juce::juce_recommended_config_flags)
+           juce::juce_gui_basics
+           juce::juce_gui_extra   # juce::NSViewComponent
+    PRIVATE juce::juce_recommended_config_flags)
 target_compile_definitions(pulp_embed_juce PUBLIC
     JUCE_GLOBAL_MODULE_SETTINGS_ENABLED=0)
 
