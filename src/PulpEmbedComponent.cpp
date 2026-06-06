@@ -1,0 +1,87 @@
+#include "PulpEmbedComponent.h"
+
+namespace pulp_juce {
+
+PulpEmbedComponent::PulpEmbedComponent(const juce::File& designIrJson,
+                                       int logicalWidth, int logicalHeight) {
+    setSize(logicalWidth, logicalHeight);
+
+    PulpEmbedDesc desc{};
+    desc.struct_size = sizeof(PulpEmbedDesc);
+    desc.abi_version = PULP_VIEW_EMBED_ABI_VERSION;
+    desc.logical_width = logicalWidth;
+    desc.logical_height = logicalHeight;
+    desc.scale_factor = 1.0f;
+    desc.backend_pref = PULP_EMBED_BACKEND_PREF_AUTO;
+    desc.design_width = logicalWidth;
+    desc.design_height = logicalHeight;
+
+    const auto path = designIrJson.getFullPathName();
+    PulpEmbedResult r =
+        pulp_embed_create_from_design_json(&desc, path.toRawUTF8(), &view_);
+    if (r != PULP_EMBED_OK || view_ == nullptr) {
+        view_ = nullptr;
+        return;
+    }
+
+   #if JUCE_MAC
+    // Host-parents mode: JUCE owns parenting/retain/resize of Pulp's child view.
+    addAndMakeVisible(nsView_);
+    nsView_.setView(pulp_embed_native_handle(view_));
+   #endif
+
+    startTimerHz(30);  // drives notify_attached retry + pulp_embed_tick
+}
+
+PulpEmbedComponent::~PulpEmbedComponent() {
+    stopTimer();
+   #if JUCE_MAC
+    // Null JUCE's retained reference to Pulp's child BEFORE destroying Pulp,
+    // so JUCE removes/releases its wrapper while Pulp's host still owns the
+    // NSView (avoids a dangling/double-free). Then Pulp tears down in order.
+    nsView_.setView(nullptr);
+   #endif
+    if (view_ != nullptr) {
+        pulp_embed_destroy(view_);
+        view_ = nullptr;
+    }
+}
+
+juce::String PulpEmbedComponent::lastError() const {
+    if (view_ == nullptr) {
+        char buf[512];
+        pulp_embed_last_create_error(buf, sizeof(buf));
+        return juce::String::fromUTF8(buf);
+    }
+    char buf[512];
+    pulp_embed_last_error(view_, buf, sizeof(buf));
+    return juce::String::fromUTF8(buf);
+}
+
+bool PulpEmbedComponent::isGpuBacked() const noexcept {
+    return view_ != nullptr &&
+           pulp_embed_active_backend(view_) == PULP_EMBED_BACKEND_GPU;
+}
+
+void PulpEmbedComponent::resized() {
+    if (view_ == nullptr) return;
+   #if JUCE_MAC
+    nsView_.setBounds(getLocalBounds());
+   #endif
+    const float scale =
+        (float) juce::Desktop::getInstance().getDisplays()
+            .getPrimaryDisplay() ->scale;
+    pulp_embed_resize(view_, getWidth(), getHeight(), scale > 0.0f ? scale : 1.0f);
+}
+
+void PulpEmbedComponent::timerCallback() {
+    if (view_ == nullptr) return;
+    if (!opened_) {
+        // Retry until the child is actually in a live window hierarchy.
+        if (pulp_embed_notify_attached(view_) == PULP_EMBED_OK)
+            opened_ = true;
+    }
+    pulp_embed_tick(view_);
+}
+
+}  // namespace pulp_juce
