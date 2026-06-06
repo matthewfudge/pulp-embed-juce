@@ -30,6 +30,11 @@ PulpEmbedComponent::PulpEmbedComponent(const juce::File& designIrJson,
     // Host-parents mode: JUCE owns parenting/retain/resize of Pulp's child view.
     addAndMakeVisible(nsView_);
     nsView_.setView(pulp_embed_native_handle(view_));
+    // Size the wrapper to the component immediately. resized() does NOT fire if
+    // the component is already at its final size when content is installed, so
+    // without this the NSViewComponent (and thus Pulp's child NSView) stays 0x0
+    // and never appears on screen.
+    nsView_.setBounds(getLocalBounds());
    #endif
 
     startTimerHz(30);  // drives notify_attached retry + pulp_embed_tick
