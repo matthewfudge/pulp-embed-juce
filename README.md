@@ -36,7 +36,18 @@ cmake --build build -j
 
 JUCE is pulled via FetchContent (pinned tag). The library target
 `pulp_embed_juce` is the adapter; `-DPULP_EMBED_JUCE_BUILD_EXAMPLE=ON` also builds
-a standalone demo app that embeds the bundled "VST Style" Figma fixture.
+a standalone demo app that embeds the bundled "VST Style" Figma fixture at full
+fidelity (it points `PulpEmbedComponent` at the importer JS bundle).
+
+Run the demo:
+
+```bash
+open "build/pulp-embed-juce-demo_artefacts/Release/Pulp Embed (JUCE).app"
+```
+
+`PulpEmbedComponent(juce::File source, w, h)` auto-detects its argument: a
+directory containing `ui.js` (importer `--emit js` bundle) renders through the
+high-fidelity scripted-UI path; a `.json` file uses the lightweight DesignIR path.
 
 ## Platform
 
