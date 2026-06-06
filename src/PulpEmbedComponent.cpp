@@ -1,5 +1,7 @@
 #include "PulpEmbedComponent.h"
 
+#include <vector>
+
 namespace pulp_juce {
 
 PulpEmbedComponent::PulpEmbedComponent(const juce::File& designIrJson,
@@ -61,6 +63,36 @@ juce::String PulpEmbedComponent::lastError() const {
 bool PulpEmbedComponent::isGpuBacked() const noexcept {
     return view_ != nullptr &&
            pulp_embed_active_backend(view_) == PULP_EMBED_BACKEND_GPU;
+}
+
+static bool write_png(const juce::File& out, const std::vector<uint8_t>& bytes) {
+    if (bytes.empty()) return false;
+    out.deleteFile();
+    return out.replaceWithData(bytes.data(), bytes.size());
+}
+
+bool PulpEmbedComponent::writeCapturePng(const juce::File& out) {
+    if (view_ == nullptr) return false;
+    size_t need = 0;
+    if (pulp_embed_capture_png(view_, nullptr, 0, &need) != PULP_EMBED_OK || need == 0)
+        return false;
+    std::vector<uint8_t> png(need);
+    if (pulp_embed_capture_png(view_, png.data(), png.size(), &need) != PULP_EMBED_OK)
+        return false;
+    return write_png(out, png);
+}
+
+bool PulpEmbedComponent::writeRenderPng(const juce::File& out, int width, int height) {
+    if (view_ == nullptr) return false;
+    size_t need = 0;
+    if (pulp_embed_render_png(view_, width, height, 1.0f, nullptr, 0, &need) != PULP_EMBED_OK
+        || need == 0)
+        return false;
+    std::vector<uint8_t> png(need);
+    if (pulp_embed_render_png(view_, width, height, 1.0f, png.data(), png.size(), &need)
+        != PULP_EMBED_OK)
+        return false;
+    return write_png(out, png);
 }
 
 void PulpEmbedComponent::resized() {

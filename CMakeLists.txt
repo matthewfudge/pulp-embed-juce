@@ -8,7 +8,7 @@
 #     -DCMAKE_PREFIX_PATH=/path/to/pulp-sdk-install \
 #     -DPULP_VIEW_EMBED_DIR=/path/to/pulp-view-embed
 cmake_minimum_required(VERSION 3.24)
-project(pulp_embed_juce LANGUAGES C CXX)
+project(pulp_embed_juce VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -44,7 +44,10 @@ target_compile_definitions(pulp_embed_juce PUBLIC
 
 # ── optional standalone example ──────────────────────────────────────────
 if(PULP_EMBED_JUCE_BUILD_EXAMPLE)
-    juce_add_gui_app(pulp-embed-juce-demo PRODUCT_NAME "Pulp Embed (JUCE)")
+    juce_add_gui_app(pulp-embed-juce-demo
+        PRODUCT_NAME "Pulp Embed (JUCE)"
+        VERSION 0.1.0
+        BUNDLE_ID dev.pulp.embed.juce.demo)
     target_sources(pulp-embed-juce-demo PRIVATE examples/standalone/Main.cpp)
     target_link_libraries(pulp-embed-juce-demo PRIVATE
         pulp_embed_juce

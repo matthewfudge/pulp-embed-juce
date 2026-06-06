@@ -27,6 +27,13 @@ public:
     bool isValid() const noexcept { return view_ != nullptr; }
     juce::String lastError() const;
     bool isGpuBacked() const noexcept;
+    bool isOpened() const noexcept { return opened_; }
+
+    // Verification helpers (used by the self-check demo). writeCapturePng grabs
+    // the LIVE GPU back buffer of the running window; writeRenderPng is the
+    // deterministic Skia raster. Both return true on success.
+    bool writeCapturePng(const juce::File& out);
+    bool writeRenderPng(const juce::File& out, int width, int height);
 
     void resized() override;
 
