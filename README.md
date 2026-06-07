@@ -7,6 +7,50 @@ Figma frame) as a `juce::Component` inside any JUCE app or plugin.
 > Status: **experiment**. Thin wrapper over the flat C ABI — no Pulp C++ types
 > cross into JUCE translation units (only `pulp_view_embed.h`).
 
+## Status / what works / known limitations / roadmap
+
+**What works (macOS):**
+
+- `PulpEmbedComponent` (a `juce::Component`) embeds a Pulp-imported design at
+  full fidelity via the `pulp_view_embed` flat C ABI (host-parents mode through
+  `juce::NSViewComponent`).
+- Auto-detects its source: an importer `--emit js` bundle dir (high-fidelity
+  scripted-UI render, rasterized images/knobs/glass) vs a `.json` DesignIR
+  (lightweight native widgets).
+- A real `juce_add_plugin` target (`PulpEmbedJucePlugin`) in **VST3 + AU +
+  Standalone** whose `AudioProcessorEditor` IS the embedded Pulp design.
+- **Interactive parameters (ABI v3):** the design's controls bind
+  bidirectionally to JUCE `AudioProcessorParameter`s by string key — a dragged
+  knob writes the host param (begin/set/end gesture); host automation pushes
+  values back into the control. JUCE maps its own parameters to the design's
+  keys.
+- Resize (`resized()` → `pulp_embed_resize`) and a 30 Hz tick timer; teardown
+  in correct ownership order (null the `NSViewComponent` before
+  `pulp_embed_destroy`).
+- Headless self-check (`PULP_EMBED_SELFCHECK=1`) of the Standalone proves the
+  editor renders + live-captures without a DAW.
+
+**Known limitations:**
+
+- macOS only today. Windows is the same shape via `juce::HWNDComponent` once
+  `pulp-view-embed` registers a Windows `PluginViewHost` factory.
+- Requires an installed Pulp SDK on `CMAKE_PREFIX_PATH` (no standalone build).
+- Real-DAW load (Logic/REAPER/…) is a remaining manual validation step; CI
+  covers build + headless render + pluginval-style editor lifecycle.
+
+**Resolved design questions** (from the foreign-host-embedding plan):
+
+- *Event-loop tick* — borrowed from the host: a `juce::Timer` (and the
+  display-link inside Pulp's GPU host) drives `pulp_embed_tick`; the adapter
+  does not run its own loop.
+- *Parameter model* — string-key based, which maps cleanly onto JUCE's
+  `AudioProcessorParameter` (the host owns the param objects and binds each to a
+  design key once at editor-create time).
+
+**Roadmap:** Windows `HWNDComponent` host; `pulp add`-style packaged
+distribution; zero-copy GPU compositing (currently CPU RGBA readback for the
+offscreen path).
+
 ## Usage
 
 ```cpp
