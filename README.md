@@ -72,6 +72,11 @@ offscreen path).
 - **Changing the UX later?** Re-run the importer and ship a new bundle (no C++
   edits); bind controls to JUCE `AudioProcessorParameter`s by string key via the
   ABI v3 param bridge to make them interactive.
+- **Iterating fast (hot-reload)?** Launch with `PULP_EMBED_HOT_RELOAD=1` and edit
+  the bundle's `ui.js` — the open editor live-reloads (values preserved), no
+  re-import. Off by default so it never ships in a release. Use absolute asset
+  paths (importer default) for the dev loop. See the core
+  [Editing & hot-reload](../pulp-view-embed#editing--hot-reload-the-dev-loop--no-re-import-per-tweak) guide.
 
 Full architecture + supported-imports table + roadmap:
 [`pulp-view-embed` README](../pulp-view-embed#what-you-actually-get-plain-english-faq).
