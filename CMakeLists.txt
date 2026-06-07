@@ -42,6 +42,10 @@ target_link_libraries(pulp_embed_juce
 target_compile_definitions(pulp_embed_juce PUBLIC
     JUCE_GLOBAL_MODULE_SETTINGS_ENABLED=0)
 
+# The importer JS bundle dir (high-fidelity scripted-UI render) baked into the
+# example/plugin so it loads the same Figma fixture the iPlug2 adapter uses.
+set(PULP_EMBED_DEMO_IR "${PULP_VIEW_EMBED_DIR}/fixtures/figma-vst-style/bundle")
+
 # ── optional standalone example ──────────────────────────────────────────
 if(PULP_EMBED_JUCE_BUILD_EXAMPLE)
     juce_add_gui_app(pulp-embed-juce-demo
@@ -54,7 +58,49 @@ if(PULP_EMBED_JUCE_BUILD_EXAMPLE)
         juce::juce_gui_extra
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags)
-    # Point at the importer JS bundle dir (high-fidelity scripted-UI render).
     target_compile_definitions(pulp-embed-juce-demo PRIVATE
-        PULP_EMBED_DEMO_IR="${CMAKE_CURRENT_SOURCE_DIR}/../pulp-view-embed/fixtures/figma-vst-style/bundle")
+        PULP_EMBED_DEMO_IR="${PULP_EMBED_DEMO_IR}")
+endif()
+
+# ── real plugin (VST3 + AU) whose editor hosts PulpEmbedComponent ─────────
+# Built by default so `cmake --build build` produces the plugin formats; the
+# format validators (auval / pluginval / load smokes) run against these.
+option(PULP_EMBED_JUCE_BUILD_PLUGIN "Build the VST3/AU plugin example" ON)
+if(PULP_EMBED_JUCE_BUILD_PLUGIN)
+    juce_add_plugin(PulpEmbedJucePlugin
+        PRODUCT_NAME "PulpEmbedJuce"
+        COMPANY_NAME "Pulp"
+        BUNDLE_ID dev.pulp.embed.juce.plugin
+        PLUGIN_MANUFACTURER_CODE Pulp
+        PLUGIN_CODE Pemj            # unique 4-char code (distinct from iPlug2 'Pemb')
+        # Standalone is the plugin wrapped as an app: it builds the SAME
+        # AudioProcessorEditor the VST3/AU host opens, so a headless self-check
+        # of the Standalone proves the embed renders in the real plugin editor.
+        FORMATS VST3 AU Standalone
+        VST3_CATEGORIES Fx
+        AU_MAIN_TYPE kAudioUnitType_Effect
+        IS_SYNTH FALSE
+        NEEDS_MIDI_INPUT FALSE
+        NEEDS_MIDI_OUTPUT FALSE
+        EDITOR_WANTS_KEYBOARD_FOCUS FALSE
+        COPY_PLUGIN_AFTER_BUILD FALSE   # follow "validate before install"; install is explicit
+        VERSION 0.1.0)
+
+    juce_generate_juce_header(PulpEmbedJucePlugin)
+
+    target_sources(PulpEmbedJucePlugin PRIVATE
+        examples/plugin/PluginProcessor.cpp
+        examples/plugin/PluginEditor.cpp)
+    target_include_directories(PulpEmbedJucePlugin PRIVATE examples/plugin)
+    target_compile_definitions(PulpEmbedJucePlugin PUBLIC
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+        JUCE_VST3_CAN_REPLACE_VST2=0)
+    target_compile_definitions(PulpEmbedJucePlugin PRIVATE
+        PULP_EMBED_DEMO_IR="${PULP_EMBED_DEMO_IR}")
+    target_link_libraries(PulpEmbedJucePlugin PRIVATE
+        pulp_embed_juce
+        juce::juce_audio_utils
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags)
 endif()
