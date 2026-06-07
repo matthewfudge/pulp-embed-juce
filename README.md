@@ -51,6 +51,31 @@ Figma frame) as a `juce::Component` inside any JUCE app or plugin.
 distribution; zero-copy GPU compositing (currently CPU RGBA readback for the
 offscreen path).
 
+## What gets embedded (FAQ)
+
+- **What shows up in your editor?** One rendered child `juce::Component` — the
+  imported design, drawn by Pulp — added to your `AudioProcessorEditor` like any
+  other component.
+- **Which designs?** Anything `pulp import-design` can import: **Figma, Claude
+  Design, Stitch, v0, Pencil, React Native** (it consumes the importer's
+  `--emit js` bundle or `--emit ir-json`, not the design tool directly). Pulp's
+  layout is **flex + grid only**, so CSS block/float/table/multi-column designs
+  are out of scope by design.
+- **GPU or CPU?** GPU by default (Dawn/Metal + Skia Graphite); CPU raster
+  fallback when the GPU stack is absent. The standalone here renders on GPU.
+- **JS engine?** Only on the high-fidelity bundle path (Pulp's QuickJS scripted
+  UI — that's what makes it pixel-match the importer). The lightweight DesignIR
+  path uses native widgets, no JS.
+- **Skia/Dawn or just C++?** Your binary statically links the Pulp SDK, which
+  brings Skia + Dawn transitively (tens of MB) — but **no Pulp C++ type enters
+  your translation units**; you include only `pulp_view_embed.h` (C).
+- **Changing the UX later?** Re-run the importer and ship a new bundle (no C++
+  edits); bind controls to JUCE `AudioProcessorParameter`s by string key via the
+  ABI v3 param bridge to make them interactive.
+
+Full architecture + supported-imports table + roadmap:
+[`pulp-view-embed` README](../pulp-view-embed#what-you-actually-get-plain-english-faq).
+
 ## Usage
 
 ```cpp
