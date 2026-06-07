@@ -94,6 +94,12 @@ recompile. **Off by default** (so it never ships in a release):
    values** — Pulp's `ScriptedUiSession` hot-reloader, pumped by the embed's
    per-tick `poll()`.
 
+`PulpEmbedComponent` does this automatically: when `PULP_EMBED_HOT_RELOAD` is set
+it arms a **debounced file-watcher** on the bundle's `ui.js` (polled on its 30 Hz
+timer) that calls `pulp_embed_reload_bundle` on change — so you just save, no
+manual step. Force it on/off with `component.enableBundleHotReload(true|false)`.
+Leave it off in release builds.
+
 Use the importer's default **absolute** asset paths for the dev loop (a
 portabilized relative bundle resolves assets through the production wrapper,
 which the watcher can't see). Full guide:

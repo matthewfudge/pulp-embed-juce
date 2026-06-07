@@ -31,6 +31,15 @@ public:
     bool isGpuBacked() const noexcept;
     bool isOpened() const noexcept { return opened_; }
 
+    // Dev hot-reload watcher: poll the bundle's ui.js mtime on the existing
+    // timer and call pulp_embed_reload_bundle when it changes (debounced one
+    // tick so a mid-write save doesn't reload a half-written file). Editing the
+    // bundle then reloads the open editor live — no DAW reload. Bundle path only.
+    // Auto-enabled at construction when PULP_EMBED_HOT_RELOAD is set; call this
+    // to force it on/off. No-op for the DesignIR (.json) path. Ship it off in
+    // release builds (it's a developer loop).
+    void enableBundleHotReload(bool enable = true);
+
     // Verification helpers (used by the self-check demo). writeCapturePng grabs
     // the LIVE GPU back buffer of the running window; writeRenderPng is the
     // deterministic Skia raster. Both return true on success.
@@ -47,6 +56,12 @@ private:
    #endif
     PulpEmbedView* view_ = nullptr;
     bool opened_ = false;
+
+    // Dev hot-reload watcher state (bundle path only).
+    bool watch_ = false;
+    juce::File watchFile_;       // the bundle's ui.js
+    juce::int64 lastWrite_ = 0;  // last applied mtime (ms)
+    juce::int64 pendingWrite_ = 0;  // mtime seen but not yet stable (debounce)
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PulpEmbedComponent)
 };

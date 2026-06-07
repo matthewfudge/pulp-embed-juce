@@ -1,5 +1,6 @@
 #include "PulpEmbedComponent.h"
 
+#include <cstdlib>
 #include <vector>
 
 namespace pulp_juce {
@@ -43,6 +44,24 @@ PulpEmbedComponent::PulpEmbedComponent(const juce::File& source,
    #endif
 
     startTimerHz(30);  // drives notify_attached retry + pulp_embed_tick
+
+    // Dev hot-reload: for a bundle, remember its ui.js and auto-enable the
+    // watcher when PULP_EMBED_HOT_RELOAD is set in the environment.
+    const bool isBundle =
+        source.isDirectory() || source.getChildFile("ui.js").existsAsFile();
+    if (isBundle) {
+        watchFile_ = source.isDirectory() ? source.getChildFile("ui.js") : source;
+        if (std::getenv("PULP_EMBED_HOT_RELOAD") != nullptr)
+            enableBundleHotReload(true);
+    }
+}
+
+void PulpEmbedComponent::enableBundleHotReload(bool enable) {
+    watch_ = enable && watchFile_.existsAsFile();
+    if (watch_) {
+        lastWrite_ = watchFile_.getLastModificationTime().toMilliseconds();
+        pendingWrite_ = lastWrite_;
+    }
 }
 
 PulpEmbedComponent::~PulpEmbedComponent() {
@@ -124,6 +143,19 @@ void PulpEmbedComponent::timerCallback() {
             opened_ = true;
     }
     pulp_embed_tick(view_);
+
+    // Dev hot-reload: poll the bundle's ui.js mtime; apply a change only after it
+    // has been stable for one tick (debounce vs a mid-write save). reload_bundle
+    // is probe-first/last-good, so a bad edit leaves the running editor intact.
+    if (watch_) {
+        const auto m = watchFile_.getLastModificationTime().toMilliseconds();
+        if (m != lastWrite_) {
+            if (m == pendingWrite_ &&
+                pulp_embed_reload_bundle(view_, nullptr) == PULP_EMBED_OK)
+                lastWrite_ = m;        // applied; else retry once it's stable
+            pendingWrite_ = m;
+        }
+    }
 }
 
 }  // namespace pulp_juce
