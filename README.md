@@ -81,6 +81,24 @@ offscreen path).
 Full architecture + supported-imports table + roadmap:
 [`pulp-view-embed` README](../pulp-view-embed#what-you-actually-get-plain-english-faq).
 
+## Hot reload (dev loop)
+
+Tweak the design while the plugin/standalone editor is open — no re-import, no
+recompile. **Off by default** (so it never ships in a release):
+
+1. Launch with the dev flag: `PULP_EMBED_HOT_RELOAD=1 open "Pulp Embed (JUCE).app"`
+   (for a plugin, set it in the environment your DAW inherits).
+2. Open the editor so the embedded design is visible.
+3. Edit the bundle's `ui.js` (or `theme.json`) and save.
+4. The editor live-reloads within a frame or two, **preserving knob/control
+   values** — Pulp's `ScriptedUiSession` hot-reloader, pumped by the embed's
+   per-tick `poll()`.
+
+Use the importer's default **absolute** asset paths for the dev loop (a
+portabilized relative bundle resolves assets through the production wrapper,
+which the watcher can't see). Full guide:
+[Editing & hot-reload](../pulp-view-embed#editing--hot-reload-the-dev-loop--no-re-import-per-tweak).
+
 ## Usage
 
 ```cpp
