@@ -1,7 +1,7 @@
 # pulp-embed-juce
 
 A [JUCE](https://juce.com) adapter for
-[`pulp-view-embed`](../pulp-view-embed): embed a Pulp-imported design (e.g. a
+[`pulp-view-embed`](https://github.com/danielraffel/pulp-view-embed): embed a Pulp-imported design (e.g. a
 Figma frame) as a `juce::Component` inside any JUCE app or plugin.
 
 > Status: **experiment**. Thin wrapper over the flat C ABI — no Pulp C++ types
@@ -76,10 +76,10 @@ offscreen path).
   the bundle's `ui.js` — the open editor live-reloads (values preserved), no
   re-import. Off by default so it never ships in a release. Use absolute asset
   paths (importer default) for the dev loop. See the core
-  [Editing & hot-reload](../pulp-view-embed#editing--hot-reload-the-dev-loop--no-re-import-per-tweak) guide.
+  [Editing & hot-reload](https://github.com/danielraffel/pulp-view-embed#editing--hot-reload-the-dev-loop--no-re-import-per-tweak) guide.
 
 Full architecture + supported-imports table + roadmap:
-[`pulp-view-embed` README](../pulp-view-embed#what-you-actually-get-plain-english-faq).
+[`pulp-view-embed` README](https://github.com/danielraffel/pulp-view-embed#what-you-actually-get-plain-english-faq).
 
 ## Hot reload (dev loop)
 
@@ -103,7 +103,7 @@ Leave it off in release builds.
 Use the importer's default **absolute** asset paths for the dev loop (a
 portabilized relative bundle resolves assets through the production wrapper,
 which the watcher can't see). Full guide:
-[Editing & hot-reload](../pulp-view-embed#editing--hot-reload-the-dev-loop--no-re-import-per-tweak).
+[Editing & hot-reload](https://github.com/danielraffel/pulp-view-embed#editing--hot-reload-the-dev-loop--no-re-import-per-tweak).
 
 ## Usage
 
