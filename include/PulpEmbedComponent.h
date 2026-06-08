@@ -12,6 +12,7 @@
 #include <pulp_view_embed.h>
 
 #include <memory>
+#include <vector>
 
 namespace juce { class AudioProcessor; }  // fwd — full type only needed in the .cpp
 
@@ -46,6 +47,35 @@ public:
     // constructed without a processor, or when no design key matched a
     // parameter ID). Handy for self-checks / "is the bridge live?".
     int boundParameterCount() const noexcept;
+
+    // One design control's parameter description (ABI v5 metadata), for a
+    // GREENFIELD plugin that wants to BUILD its APVTS parameters from the design.
+    // `key` is the design control key (== the JUCE parameter ID to bind to);
+    // `isDiscrete` + `optionCount` choose AudioParameterChoice/Bool vs Float;
+    // `defaultNorm` is the imported default [0,1]. `name`/`unit` are populated
+    // once the importer carries them (empty until then — fall back to `key`).
+    struct DesignParamDesc {
+        juce::String key;
+        juce::String widgetKind;   // "knob"/"fader"/"toggle"/"dropdown"/"tab_group"/"stepper"
+        bool         isDiscrete = false;
+        int          optionCount = 0;
+        double       defaultNorm = 0.0;
+        juce::String name;         // "" until imported
+        juce::String unit;         // "" until imported
+    };
+
+    // Descriptors for the design's bindable controls (in stable ABI order), read
+    // from the live view. A greenfield processor more typically wants them BEFORE
+    // the editor exists — use the static readDesignParams() for that.
+    std::vector<DesignParamDesc> designParams() const;
+
+    // Static greenfield entry point: read a design's parameter descriptors WITHOUT
+    // an editor/window (offscreen), so a processor can build its
+    // AudioProcessorValueTreeState::ParameterLayout at construction time straight
+    // from the design. `source` is a bundle dir (ui.js) or a DesignIR JSON file.
+    static std::vector<DesignParamDesc> readDesignParams(const juce::File& source,
+                                                         int logicalWidth,
+                                                         int logicalHeight);
 
     bool isValid() const noexcept { return view_ != nullptr; }
     juce::String lastError() const;

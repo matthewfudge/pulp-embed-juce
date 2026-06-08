@@ -129,6 +129,31 @@ auto* ui = new pulp_juce::PulpEmbedComponent(
 // ui->boundParameterCount() -> how many controls resolved to a parameter.
 ```
 
+**Greenfield — build APVTS params from the design.** A processor declares its
+parameters at construction (before any editor), so use the static
+`readDesignParams()` to read the design's controls offscreen and generate the
+layout (ABI v5 metadata: kind, discreteness, option count, default; name/unit
+arrive with the importer metadata slice). The control key doubles as the
+`ParameterID`, so binding "just works" afterward:
+
+```cpp
+juce::AudioProcessorValueTreeState::ParameterLayout layout;
+for (auto& p : pulp_juce::PulpEmbedComponent::readDesignParams(
+         juce::File("design.ir.json"), 1000, 600)) {
+    const auto name = p.name.isEmpty() ? p.key : p.name;
+    if (p.isDiscrete)
+        layout.add(std::make_unique<juce::AudioParameterChoice>(
+            juce::ParameterID{p.key, 1}, name, makeChoices(p.optionCount), 0));
+    else
+        layout.add(std::make_unique<juce::AudioParameterFloat>(
+            juce::ParameterID{p.key, 1}, name,
+            juce::NormalisableRange<float>(0.0f, 1.0f), (float) p.defaultNorm));
+}
+```
+
+The host still owns the params (authoritative); an existing plugin keeps declaring
+them by hand and uses `designParams()` (instance, post-create) as a cross-check.
+
 `PulpEmbedComponent` uses **host-parents mode**: it takes Pulp's child native
 view via `pulp_embed_native_handle`, parents it through `juce::NSViewComponent`,
 and calls `pulp_embed_notify_attached` once the view is in a live window so Pulp
