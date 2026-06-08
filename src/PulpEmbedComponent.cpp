@@ -4,6 +4,8 @@
 #include <juce_audio_processors/juce_audio_processors.h>  // bind to a real processor
 
 #include <cstdlib>
+#include <cstring>
+#include <functional>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -43,6 +45,35 @@ struct PulpEmbedComponent::HostBridge {
     static void endGesture(void* ctx, const char* key) {
         if (auto* p = static_cast<HostBridge*>(ctx)->find(key)) p->endChangeGesture();
     }
+
+    // ── ABI v6 text-field string bridge (text_field <-> plugin STATE) ────────
+    // text_fields carry a string (preset name / label / search), not a
+    // normalized value, so they ride a side-channel keyed by the design key.
+    // `strings` is the authoritative store get_string seeds from (empty = keep
+    // the imported default); `onString` is an optional live-edit notification.
+    std::unordered_map<std::string, std::string> strings;
+    std::function<void(const juce::String&, const juce::String&)> onString;
+
+    static void setString(void* ctx, const char* key, const char* utf8) {
+        auto* b = static_cast<HostBridge*>(ctx);
+        const std::string k = key ? key : "";
+        const std::string v = utf8 ? utf8 : "";
+        b->strings[k] = v;
+        if (b->onString)
+            b->onString(juce::String::fromUTF8(k.c_str()), juce::String::fromUTF8(v.c_str()));
+    }
+    static int32_t getString(void* ctx, const char* key, char* out, int32_t cap) {
+        auto* b = static_cast<HostBridge*>(ctx);
+        const auto it = b->strings.find(key ? key : "");
+        if (it == b->strings.end()) return -1;  // no host opinion: keep imported default
+        const int32_t n = static_cast<int32_t>(it->second.size());
+        if (out && cap > 0) {
+            const int32_t c = n < cap - 1 ? n : cap - 1;
+            std::memcpy(out, it->second.data(), static_cast<size_t>(c));
+            out[c] = '\0';
+        }
+        return n;
+    }
 };
 
 PulpEmbedComponent::PulpEmbedComponent(const juce::File& source,
@@ -80,6 +111,9 @@ void PulpEmbedComponent::createView(const juce::File& source,
         desc.host.get_param = &HostBridge::getParam;
         desc.host.begin_gesture = &HostBridge::beginGesture;
         desc.host.end_gesture = &HostBridge::endGesture;
+        // ABI v6 string side-channel (text_field <-> plugin state), same host_ctx.
+        desc.host.set_string = &HostBridge::setString;
+        desc.host.get_string = &HostBridge::getString;
     }
 
     const auto path = source.getFullPathName();
@@ -169,6 +203,53 @@ void PulpEmbedComponent::pumpHostToUi() {
 
 int PulpEmbedComponent::boundParameterCount() const noexcept {
     return bridge_ != nullptr ? static_cast<int>(bridge_->bound.size()) : 0;
+}
+
+// ── text-field string state (ABI v6) ────────────────────────────────────────
+
+int PulpEmbedComponent::stringFieldCount() const noexcept {
+    return view_ != nullptr ? pulp_embed_string_param_count(view_) : 0;
+}
+
+juce::String PulpEmbedComponent::stringFieldKey(int index) const {
+    char buf[256] = {0};
+    if (view_ != nullptr) pulp_embed_string_param_key(view_, index, buf, sizeof buf);
+    return juce::String::fromUTF8(buf);
+}
+
+juce::String PulpEmbedComponent::stringValue(const juce::String& key) const {
+    if (view_ == nullptr) return {};
+    // Two-call sizing so arbitrarily long values round-trip.
+    const size_t need = pulp_embed_get_string(view_, key.toRawUTF8(), nullptr, 0);
+    if (need == 0) return {};
+    std::vector<char> buf(need + 1, '\0');
+    pulp_embed_get_string(view_, key.toRawUTF8(), buf.data(), buf.size());
+    return juce::String::fromUTF8(buf.data());
+}
+
+bool PulpEmbedComponent::setStringValue(const juce::String& key, const juce::String& value) {
+    return view_ != nullptr &&
+           pulp_embed_set_string(view_, key.toRawUTF8(), value.toRawUTF8()) == PULP_EMBED_OK;
+}
+
+juce::StringPairArray PulpEmbedComponent::captureStringState() const {
+    juce::StringPairArray out;
+    const int n = stringFieldCount();
+    for (int i = 0; i < n; ++i) {
+        const juce::String k = stringFieldKey(i);
+        out.set(k, stringValue(k));
+    }
+    return out;
+}
+
+void PulpEmbedComponent::restoreStringState(const juce::StringPairArray& state) {
+    const auto& keys = state.getAllKeys();
+    for (const auto& k : keys) setStringValue(k, state[k]);
+}
+
+void PulpEmbedComponent::setStringChangeHandler(
+        std::function<void(const juce::String&, const juce::String&)> fn) {
+    if (bridge_ != nullptr) bridge_->onString = std::move(fn);
 }
 
 // Convert the shared framework-neutral descriptor (std::string) to JUCE's
