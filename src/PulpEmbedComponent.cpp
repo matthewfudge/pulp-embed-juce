@@ -1,5 +1,6 @@
 #include "PulpEmbedComponent.h"
 
+#include <pulp_view_embed.hpp>  // pulp::embed::param_descs / read_design_params (shared loop)
 #include <juce_audio_processors/juce_audio_processors.h>  // bind to a real processor
 
 #include <cstdlib>
@@ -170,56 +171,37 @@ int PulpEmbedComponent::boundParameterCount() const noexcept {
     return bridge_ != nullptr ? static_cast<int>(bridge_->bound.size()) : 0;
 }
 
-// Extract per-control descriptors (ABI v5) from any view — shared by the instance
-// and static readers.
-static std::vector<PulpEmbedComponent::DesignParamDesc> descsForView(PulpEmbedView* v) {
-    std::vector<PulpEmbedComponent::DesignParamDesc> out;
-    if (v == nullptr) return out;
-    const int n = pulp_embed_param_count(v);
-    for (int i = 0; i < n; ++i) {
-        PulpEmbedParamInfo pi{};
-        if (pulp_embed_param_info(v, i, &pi) != PULP_EMBED_OK) continue;
-        PulpEmbedComponent::DesignParamDesc d;
-        char key[256] = {0};
-        pulp_embed_param_key(v, i, key, sizeof key);
-        d.key = juce::String::fromUTF8(key);
-        d.widgetKind = juce::String::fromUTF8(pi.widget_kind);
-        d.isDiscrete = pi.is_discrete != 0;
-        d.optionCount = pi.option_count;
-        d.defaultNorm = pi.default_norm;
-        if (pi.has_meta) {
-            d.name = juce::String::fromUTF8(pi.name);
-            d.unit = juce::String::fromUTF8(pi.unit);
-        }
-        out.push_back(std::move(d));
-    }
-    return out;
+// Convert the shared framework-neutral descriptor (std::string) to JUCE's
+// juce::String variant. The enumeration loop itself lives once in
+// pulp_view_embed.hpp (pulp::embed::param_descs / read_design_params) — this is
+// the only JUCE-specific part.
+static PulpEmbedComponent::DesignParamDesc toJuce(const pulp::embed::ParamDesc& p) {
+    PulpEmbedComponent::DesignParamDesc d;
+    d.key = juce::String::fromUTF8(p.key.c_str());
+    d.widgetKind = juce::String::fromUTF8(p.widget_kind.c_str());
+    d.isDiscrete = p.is_discrete;
+    d.optionCount = p.option_count;
+    d.defaultNorm = p.default_norm;
+    d.name = juce::String::fromUTF8(p.name.c_str());
+    d.unit = juce::String::fromUTF8(p.unit.c_str());
+    return d;
 }
 
 std::vector<PulpEmbedComponent::DesignParamDesc> PulpEmbedComponent::designParams() const {
-    return descsForView(view_);
+    std::vector<DesignParamDesc> out;
+    for (const auto& p : pulp::embed::param_descs(view_)) out.push_back(toJuce(p));
+    return out;
 }
 
 std::vector<PulpEmbedComponent::DesignParamDesc>
 PulpEmbedComponent::readDesignParams(const juce::File& source, int logicalWidth,
                                      int logicalHeight) {
-    PulpEmbedDesc desc{};
-    desc.struct_size = sizeof(PulpEmbedDesc);
-    desc.abi_version = PULP_VIEW_EMBED_ABI_VERSION;
-    desc.logical_width = logicalWidth;
-    desc.logical_height = logicalHeight;
-    desc.scale_factor = 1.0f;
-    desc.backend_pref = PULP_EMBED_BACKEND_PREF_AUTO;
-    desc.design_width = logicalWidth;
-    desc.design_height = logicalHeight;
     const bool isBundle =
         source.isDirectory() || source.getChildFile("ui.js").existsAsFile();
-    PulpEmbedView* v = nullptr;
-    if (pulp_embed_create_offscreen(&desc, source.getFullPathName().toRawUTF8(),
-                                    isBundle ? 1 : 0, &v) != PULP_EMBED_OK || v == nullptr)
-        return {};
-    auto out = descsForView(v);
-    pulp_embed_destroy(v);
+    std::vector<DesignParamDesc> out;
+    for (const auto& p : pulp::embed::read_design_params(
+             source.getFullPathName().toStdString(), isBundle, logicalWidth, logicalHeight))
+        out.push_back(toJuce(p));
     return out;
 }
 
