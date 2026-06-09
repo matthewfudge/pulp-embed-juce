@@ -10,6 +10,8 @@
 #include <juce_gui_extra/juce_gui_extra.h>
 #include "PulpEmbedComponent.h"
 
+#include <cstdlib>
+
 #ifndef PULP_EMBED_DEMO_IR
  #define PULP_EMBED_DEMO_IR ""
 #endif
@@ -47,8 +49,13 @@ private:
             : juce::DocumentWindow("Pulp Embed (JUCE)",
                                    juce::Colours::black,
                                    juce::DocumentWindow::allButtons) {
-            embed_ = new pulp_juce::PulpEmbedComponent(
-                juce::File(PULP_EMBED_DEMO_IR), kW, kH);
+            // Default to the baked demo design; PULP_EMBED_DEMO_IR_PATH (env)
+            // overrides it so you can point the demo at any imported bundle/IR
+            // (e.g. a fresh `pulp import-design` output) without rebuilding.
+            const char* irEnv = std::getenv("PULP_EMBED_DEMO_IR_PATH");
+            const juce::File src = (irEnv && *irEnv) ? juce::File(irEnv)
+                                                     : juce::File(PULP_EMBED_DEMO_IR);
+            embed_ = new pulp_juce::PulpEmbedComponent(src, kW, kH);
             if (!embed_->isValid())
                 juce::Logger::writeToLog("Pulp embed failed: " + embed_->lastError());
             setUsingNativeTitleBar(true);
