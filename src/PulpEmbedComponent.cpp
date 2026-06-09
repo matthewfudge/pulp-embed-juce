@@ -1,8 +1,11 @@
 #include "PulpEmbedComponent.h"
 
+#include <pulp_view_embed.hpp>  // pulp::embed::param_descs / read_design_params (shared loop)
 #include <juce_audio_processors/juce_audio_processors.h>  // bind to a real processor
 
 #include <cstdlib>
+#include <cstring>
+#include <functional>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -42,6 +45,35 @@ struct PulpEmbedComponent::HostBridge {
     static void endGesture(void* ctx, const char* key) {
         if (auto* p = static_cast<HostBridge*>(ctx)->find(key)) p->endChangeGesture();
     }
+
+    // ── ABI v6 text-field string bridge (text_field <-> plugin STATE) ────────
+    // text_fields carry a string (preset name / label / search), not a
+    // normalized value, so they ride a side-channel keyed by the design key.
+    // `strings` is the authoritative store get_string seeds from (empty = keep
+    // the imported default); `onString` is an optional live-edit notification.
+    std::unordered_map<std::string, std::string> strings;
+    std::function<void(const juce::String&, const juce::String&)> onString;
+
+    static void setString(void* ctx, const char* key, const char* utf8) {
+        auto* b = static_cast<HostBridge*>(ctx);
+        const std::string k = key ? key : "";
+        const std::string v = utf8 ? utf8 : "";
+        b->strings[k] = v;
+        if (b->onString)
+            b->onString(juce::String::fromUTF8(k.c_str()), juce::String::fromUTF8(v.c_str()));
+    }
+    static int32_t getString(void* ctx, const char* key, char* out, int32_t cap) {
+        auto* b = static_cast<HostBridge*>(ctx);
+        const auto it = b->strings.find(key ? key : "");
+        if (it == b->strings.end()) return -1;  // no host opinion: keep imported default
+        const int32_t n = static_cast<int32_t>(it->second.size());
+        if (out && cap > 0) {
+            const int32_t c = n < cap - 1 ? n : cap - 1;
+            std::memcpy(out, it->second.data(), static_cast<size_t>(c));
+            out[c] = '\0';
+        }
+        return n;
+    }
 };
 
 PulpEmbedComponent::PulpEmbedComponent(const juce::File& source,
@@ -79,6 +111,9 @@ void PulpEmbedComponent::createView(const juce::File& source,
         desc.host.get_param = &HostBridge::getParam;
         desc.host.begin_gesture = &HostBridge::beginGesture;
         desc.host.end_gesture = &HostBridge::endGesture;
+        // ABI v6 string side-channel (text_field <-> plugin state), same host_ctx.
+        desc.host.set_string = &HostBridge::setString;
+        desc.host.get_string = &HostBridge::getString;
     }
 
     const auto path = source.getFullPathName();
@@ -107,6 +142,11 @@ void PulpEmbedComponent::createView(const juce::File& source,
    #endif
 
     resolveParameterBindings();
+
+    // Opt into mouse-move tracking even outside drag — without this, JUCE
+    // only delivers mouseMove during a press-drag, and pulp-view-embed
+    // never learns the cursor position for CSS :hover dispatch.
+    setMouseClickGrabsKeyboardFocus(false);
 
     startTimerHz(30);  // drives notify_attached retry + pulp_embed_tick + host->UI
 
@@ -170,56 +210,84 @@ int PulpEmbedComponent::boundParameterCount() const noexcept {
     return bridge_ != nullptr ? static_cast<int>(bridge_->bound.size()) : 0;
 }
 
-// Extract per-control descriptors (ABI v5) from any view — shared by the instance
-// and static readers.
-static std::vector<PulpEmbedComponent::DesignParamDesc> descsForView(PulpEmbedView* v) {
-    std::vector<PulpEmbedComponent::DesignParamDesc> out;
-    if (v == nullptr) return out;
-    const int n = pulp_embed_param_count(v);
+// ── text-field string state (ABI v6) ────────────────────────────────────────
+
+int PulpEmbedComponent::stringFieldCount() const noexcept {
+    return view_ != nullptr ? pulp_embed_string_param_count(view_) : 0;
+}
+
+juce::String PulpEmbedComponent::stringFieldKey(int index) const {
+    char buf[256] = {0};
+    if (view_ != nullptr) pulp_embed_string_param_key(view_, index, buf, sizeof buf);
+    return juce::String::fromUTF8(buf);
+}
+
+juce::String PulpEmbedComponent::stringValue(const juce::String& key) const {
+    if (view_ == nullptr) return {};
+    // Two-call sizing so arbitrarily long values round-trip.
+    const size_t need = pulp_embed_get_string(view_, key.toRawUTF8(), nullptr, 0);
+    if (need == 0) return {};
+    std::vector<char> buf(need + 1, '\0');
+    pulp_embed_get_string(view_, key.toRawUTF8(), buf.data(), buf.size());
+    return juce::String::fromUTF8(buf.data());
+}
+
+bool PulpEmbedComponent::setStringValue(const juce::String& key, const juce::String& value) {
+    return view_ != nullptr &&
+           pulp_embed_set_string(view_, key.toRawUTF8(), value.toRawUTF8()) == PULP_EMBED_OK;
+}
+
+juce::StringPairArray PulpEmbedComponent::captureStringState() const {
+    juce::StringPairArray out;
+    const int n = stringFieldCount();
     for (int i = 0; i < n; ++i) {
-        PulpEmbedParamInfo pi{};
-        if (pulp_embed_param_info(v, i, &pi) != PULP_EMBED_OK) continue;
-        PulpEmbedComponent::DesignParamDesc d;
-        char key[256] = {0};
-        pulp_embed_param_key(v, i, key, sizeof key);
-        d.key = juce::String::fromUTF8(key);
-        d.widgetKind = juce::String::fromUTF8(pi.widget_kind);
-        d.isDiscrete = pi.is_discrete != 0;
-        d.optionCount = pi.option_count;
-        d.defaultNorm = pi.default_norm;
-        if (pi.has_meta) {
-            d.name = juce::String::fromUTF8(pi.name);
-            d.unit = juce::String::fromUTF8(pi.unit);
-        }
-        out.push_back(std::move(d));
+        const juce::String k = stringFieldKey(i);
+        out.set(k, stringValue(k));
     }
     return out;
 }
 
+void PulpEmbedComponent::restoreStringState(const juce::StringPairArray& state) {
+    const auto& keys = state.getAllKeys();
+    for (const auto& k : keys) setStringValue(k, state[k]);
+}
+
+void PulpEmbedComponent::setStringChangeHandler(
+        std::function<void(const juce::String&, const juce::String&)> fn) {
+    if (bridge_ != nullptr) bridge_->onString = std::move(fn);
+}
+
+// Convert the shared framework-neutral descriptor (std::string) to JUCE's
+// juce::String variant. The enumeration loop itself lives once in
+// pulp_view_embed.hpp (pulp::embed::param_descs / read_design_params) — this is
+// the only JUCE-specific part.
+static PulpEmbedComponent::DesignParamDesc toJuce(const pulp::embed::ParamDesc& p) {
+    PulpEmbedComponent::DesignParamDesc d;
+    d.key = juce::String::fromUTF8(p.key.c_str());
+    d.widgetKind = juce::String::fromUTF8(p.widget_kind.c_str());
+    d.isDiscrete = p.is_discrete;
+    d.optionCount = p.option_count;
+    d.defaultNorm = p.default_norm;
+    d.name = juce::String::fromUTF8(p.name.c_str());
+    d.unit = juce::String::fromUTF8(p.unit.c_str());
+    return d;
+}
+
 std::vector<PulpEmbedComponent::DesignParamDesc> PulpEmbedComponent::designParams() const {
-    return descsForView(view_);
+    std::vector<DesignParamDesc> out;
+    for (const auto& p : pulp::embed::param_descs(view_)) out.push_back(toJuce(p));
+    return out;
 }
 
 std::vector<PulpEmbedComponent::DesignParamDesc>
 PulpEmbedComponent::readDesignParams(const juce::File& source, int logicalWidth,
                                      int logicalHeight) {
-    PulpEmbedDesc desc{};
-    desc.struct_size = sizeof(PulpEmbedDesc);
-    desc.abi_version = PULP_VIEW_EMBED_ABI_VERSION;
-    desc.logical_width = logicalWidth;
-    desc.logical_height = logicalHeight;
-    desc.scale_factor = 1.0f;
-    desc.backend_pref = PULP_EMBED_BACKEND_PREF_AUTO;
-    desc.design_width = logicalWidth;
-    desc.design_height = logicalHeight;
     const bool isBundle =
         source.isDirectory() || source.getChildFile("ui.js").existsAsFile();
-    PulpEmbedView* v = nullptr;
-    if (pulp_embed_create_offscreen(&desc, source.getFullPathName().toRawUTF8(),
-                                    isBundle ? 1 : 0, &v) != PULP_EMBED_OK || v == nullptr)
-        return {};
-    auto out = descsForView(v);
-    pulp_embed_destroy(v);
+    std::vector<DesignParamDesc> out;
+    for (const auto& p : pulp::embed::read_design_params(
+             source.getFullPathName().toStdString(), isBundle, logicalWidth, logicalHeight))
+        out.push_back(toJuce(p));
     return out;
 }
 
@@ -327,6 +395,42 @@ void PulpEmbedComponent::timerCallback() {
             pendingWrite_ = m;
         }
     }
+}
+
+// ── Hover routing ────────────────────────────────────────────────────────
+//
+// pulp-view-embed has no platform mouse-move tracking — without forwarding
+// these events, `View::set_hovered` is never called in the embedded plugin
+// context and CSS :hover / onMouseEnter / onMouseLeave never fire (even
+// though `registerHover(id)` correctly arms the lambdas).
+//
+// Coordinates: JUCE delivers MouseEvent positions in this component's local
+// coords (top-left origin, logical pixels). That matches Pulp's root-view
+// coord space when the wrapping NSViewComponent fills this component
+// (which it does in createView), so we forward the raw x/y.
+//
+// JUCE's `mouseMove` fires whenever the cursor is over the component (no
+// button required) as long as `setInterceptsMouseClicks` allows it AND a
+// parent has called `addMouseListener` (the host editor typically does) —
+// no extra opt-in needed for the default JUCE mouse-move dispatch.
+
+void PulpEmbedComponent::mouseMove(const juce::MouseEvent& e) {
+    if (view_ == nullptr) return;
+    pulp_embed_dispatch_mouse_move(view_,
+                                   static_cast<double>(e.position.x),
+                                   static_cast<double>(e.position.y));
+}
+
+void PulpEmbedComponent::mouseEnter(const juce::MouseEvent& e) {
+    if (view_ == nullptr) return;
+    pulp_embed_dispatch_mouse_move(view_,
+                                   static_cast<double>(e.position.x),
+                                   static_cast<double>(e.position.y));
+}
+
+void PulpEmbedComponent::mouseExit(const juce::MouseEvent&) {
+    if (view_ == nullptr) return;
+    pulp_embed_dispatch_mouse_exit(view_);
 }
 
 }  // namespace pulp_juce

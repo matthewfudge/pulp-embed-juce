@@ -11,6 +11,7 @@
 #include <juce_gui_extra/juce_gui_extra.h>  // juce::NSViewComponent (macOS)
 #include <pulp_view_embed.h>
 
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -77,6 +78,43 @@ public:
                                                          int logicalWidth,
                                                          int logicalHeight);
 
+    // ── text-field string state (ABI v6) ───────────────────────────────────
+    // A design's text_field controls carry a UTF-8 string bound to the plugin's
+    // OWN state (preset name / label / search text) — saved/restored with the
+    // plugin, NOT a DAW-automatable parameter (so it rides the plugin's state,
+    // not the APVTS). These read/write the live view, so they work with or
+    // without a processor. Use captureStringState() in getStateInformation() and
+    // restoreStringState() in setStateInformation().
+
+    // Number of bindable text_field string controls in the design.
+    int stringFieldCount() const noexcept;
+
+    // The string control's design key at `index` (empty if out of range).
+    juce::String stringFieldKey(int index) const;
+
+    // Current UTF-8 text of the string control identified by `key` (empty if the
+    // key is unknown).
+    juce::String stringValue(const juce::String& key) const;
+
+    // Host -> view: set the text of the string control identified by `key`
+    // (preset recall). Returns true on success; a key matching no text_field is a
+    // tolerated no-op (still true), so a blind restore is safe.
+    bool setStringValue(const juce::String& key, const juce::String& value);
+
+    // Snapshot every text_field's key/value for getStateInformation(). Reads the
+    // live view, so it reflects in-editor edits even without a change handler.
+    juce::StringPairArray captureStringState() const;
+
+    // Restore a snapshot in setStateInformation(). Pushes each value host -> view
+    // without echoing back through the change handler (no edit loop).
+    void restoreStringState(const juce::StringPairArray& state);
+
+    // Optional live-edit notification: invoked (key, new value) whenever the user
+    // edits a text_field, so the plugin can mark its state dirty / updateHost
+    // DisplayName. Only fires when constructed with a processor (the string
+    // callbacks share that bridge's host_ctx).
+    void setStringChangeHandler(std::function<void(const juce::String&, const juce::String&)> fn);
+
     bool isValid() const noexcept { return view_ != nullptr; }
     juce::String lastError() const;
     bool isGpuBacked() const noexcept;
@@ -98,6 +136,18 @@ public:
     bool writeRenderPng(const juce::File& out, int width, int height);
 
     void resized() override;
+
+    // Hover routing — pulp-view-embed has no platform mouse-tracking code,
+    // so without forwarding these events to `pulp_embed_dispatch_mouse_*`,
+    // `View::set_hovered` is never called and CSS :hover / onMouseEnter /
+    // onMouseLeave never fire in the embedded plugin context, even though
+    // `registerHover(id)` correctly arms the lambdas. Mouse-move tracking
+    // is opt-in on JUCE Components — we call `setWantsMouseTracking()` in
+    // the ctor so juce::mouseMove fires whenever the cursor is over the
+    // component, not just during drags.
+    void mouseMove(const juce::MouseEvent& e) override;
+    void mouseEnter(const juce::MouseEvent& e) override;
+    void mouseExit(const juce::MouseEvent& e) override;
 
 private:
     void timerCallback() override;
