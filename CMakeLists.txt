@@ -14,6 +14,11 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 option(PULP_EMBED_JUCE_BUILD_EXAMPLE "Build the standalone example app" OFF)
+option(PULP_EMBED_JUCE_BUILD_TESTS "Build the headless adapter tests" ON)
+
+if(PULP_EMBED_JUCE_BUILD_TESTS)
+    enable_testing()
+endif()
 
 # ── the embedding C ABI library (separate repo) ──────────────────────────
 set(PULP_VIEW_EMBED_DIR "" CACHE PATH "Path to the pulp-view-embed checkout")
@@ -47,7 +52,8 @@ target_include_directories(pulp_embed_juce
 target_link_libraries(pulp_embed_juce
     PUBLIC pulp_view_embed
            juce::juce_gui_basics
-           juce::juce_gui_extra   # juce::NSViewComponent
+           juce::juce_gui_extra        # juce::NSViewComponent
+           juce::juce_audio_processors # juce::AudioProcessor (the param-bridge ctor)
     PRIVATE juce::juce_recommended_config_flags)
 target_compile_definitions(pulp_embed_juce PUBLIC
     JUCE_GLOBAL_MODULE_SETTINGS_ENABLED=0)
@@ -113,4 +119,30 @@ if(PULP_EMBED_JUCE_BUILD_PLUGIN)
         juce::juce_audio_utils
         juce::juce_recommended_config_flags
         juce::juce_recommended_warning_flags)
+endif()
+
+# ── headless adapter tests ────────────────────────────────────────────────
+# A console self-check of the ABI v6 string API (capture/restore round-trip).
+# Loads the FAITHFUL DesignIR fixture (text_fields live on that lane).
+if(PULP_EMBED_JUCE_BUILD_TESTS)
+    set(PULP_EMBED_FAITHFUL_IR
+        "${PULP_VIEW_EMBED_DIR}/fixtures/figma-vst-style-faithful/design.ir.json")
+    juce_add_console_app(pulp-embed-juce-string-test
+        PRODUCT_NAME "pulp-embed-juce-string-test")
+    juce_generate_juce_header(pulp-embed-juce-string-test)
+    target_sources(pulp-embed-juce-string-test PRIVATE examples/string-test/main.cpp)
+    target_compile_definitions(pulp-embed-juce-string-test PRIVATE
+        JUCE_WEB_BROWSER=0
+        JUCE_USE_CURL=0
+        PULP_EMBED_FAITHFUL_IR="${PULP_EMBED_FAITHFUL_IR}")
+    target_link_libraries(pulp-embed-juce-string-test PRIVATE
+        pulp_embed_juce
+        juce::juce_gui_extra
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags)
+    # GNU ld single-pass: fontconfig must come after libskia.a (Linux SDK export).
+    if(COMMAND pulp_link_fontconfig_after_skia)
+        pulp_link_fontconfig_after_skia(pulp-embed-juce-string-test)
+    endif()
+    add_test(NAME string-test COMMAND pulp-embed-juce-string-test)
 endif()
